@@ -17,6 +17,7 @@ See the LICENSE.TXT file for licensing information.
 #endif
 
 int runQuickRegressionTests(int argc, char *argv[]);
+graphP _CreateStarGraph(int N);
 int callRandomGraphs(int argc, char *argv[]);
 int callSpecificGraph(int argc, char *argv[]);
 int callRandomMaxPlanarGraph(int argc, char *argv[]);
@@ -249,6 +250,30 @@ int runQuickRegressionTests(int argc, char *argv[])
         }
     }
 
+    // TEMPORARY (issue #352): The quick regression tests are commented out
+    // below and replaced by a timing experiment for star graph construction.
+    // The expected total time for three star graphs with N = 1e6, 2e6, 4e6
+    // should roughly double with each doubling of N if the parallel edge
+    // detector's gp_IsNeighbor() call costs O(min(deg(u), deg(v))), but it
+    // roughly quadruples if gp_IsNeighbor() costs O(deg(u)) for the hub u.
+    {
+        graphP starGraph = NULL;
+
+        if ((starGraph = _CreateStarGraph(1000000)) == NULL)
+            retVal = NOTOK;
+        gp_Free(&starGraph);
+
+        if (retVal == OK && (starGraph = _CreateStarGraph(2000000)) == NULL)
+            retVal = NOTOK;
+        gp_Free(&starGraph);
+
+        if (retVal == OK && (starGraph = _CreateStarGraph(4000000)) == NULL)
+            retVal = NOTOK;
+        gp_Free(&starGraph);
+    }
+
+    /* TEMPORARY (issue #352): quick regression tests commented out for the
+       star graph timing experiment above; restore them afterward.
     if (runSpecificGraphTests() != OK)
         retVal = NOTOK;
     else if (runRandomGraphsTests() != OK)
@@ -288,6 +313,8 @@ int runQuickRegressionTests(int argc, char *argv[])
     else if (runGraphMLTests() != OK)
         retVal = NOTOK;
 
+    */
+
     // All done.
     if (retVal == OK)
         gp_Message("============\n\nAll tests have succeeded.");
@@ -300,6 +327,77 @@ int runQuickRegressionTests(int argc, char *argv[])
     FlushConsole(stdout);
 
     return retVal;
+}
+
+/****************************************************************************
+ _CreateStarGraph()
+
+ Constructs and returns a star graph with N vertices and N-1 edges, in which
+ a randomly selected hub vertex is adjacent to all other vertices. The time
+ taken to construct the graph (gp_New(), gp_EnsureVertexCapacity() and N-1
+ calls of gp_AddEdge()) is measured and reported, along with the hub.
+
+ This exercises the parallel edge autodetector in gp_InsertEdge(). Each bit
+ collision in the detector on an edge (hub, v) with hub < v is resolved by
+ gp_IsNeighbor(hub, v), which searches the hub's adjacency list (issue #352).
+
+ NOTE: The hub is chosen randomly rather than being the first or last vertex
+       because, with the current ged_Hash(), the edges (hub, v) of a star
+       whose hub is the lowest or highest numbered vertex are hashed to
+       distinct bits, so no collisions occur and gp_IsNeighbor() is never
+       called. For a hub in the interior of the vertex range, the edges
+       (v, hub) with v < hub and (hub, v) with v > hub collide with each
+       other a few thousand times per million edges.
+
+ Returns the star graph, or NULL on failure.
+ ****************************************************************************/
+
+graphP _CreateStarGraph(int N)
+{
+    graphP theGraph = NULL;
+    int hub, v;
+    platform_time start, end;
+    double duration;
+
+    srand((unsigned int)time(NULL));
+
+    gp_Message("Creating star graph with N=%d vertices...", N);
+    platform_GetTime(start);
+
+    if ((theGraph = gp_New()) == NULL)
+    {
+        gp_ErrorMessage("Unable to allocate star graph.");
+        return NULL;
+    }
+
+    if (gp_EnsureVertexCapacity(theGraph, N) != OK)
+    {
+        gp_ErrorMessage("Unable to initialize star graph with N=%d vertices.", N);
+        gp_Free(&theGraph);
+        return NULL;
+    }
+
+    hub = gp_LowerBoundVertices(theGraph) + rand() % N;
+    for (v = gp_LowerBoundVertices(theGraph); v < gp_UpperBoundVertices(theGraph); ++v)
+    {
+        if (v == hub)
+            continue;
+
+        if (gp_AddEdge(theGraph, hub, 0, v, 0) != OK)
+        {
+            gp_ErrorMessage("Unable to add star graph edge (%d, %d).", hub, v);
+            gp_Free(&theGraph);
+            return NULL;
+        }
+    }
+
+    platform_GetTime(end);
+    duration = platform_GetDuration(start, end);
+
+    gp_Message("Created star graph with N=%d vertices, M=%d edges and hub=%d (%.3lf seconds).\n",
+               N, gp_GetM(theGraph), hub, duration);
+
+    return theGraph;
 }
 
 int runAddInsertEdgeTests(void)
