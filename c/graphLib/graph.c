@@ -58,6 +58,7 @@ int _FillVertexVisitedIndexesInBicomp(graphP theGraph, int BicompRoot, int FillV
 int _ClearObstructionMarksInBicomp(graphP theGraph, int BicompRoot);
 
 int _gp_FindEdge(graphP theGraph, int u, int v);
+unsigned _gp_GetTwinDirection(unsigned direction);
 
 int _EquipGraphWithParallelEdgeDetector(graphP theGraph, int requiredEdgeCapacity);
 int _CompactEdgeStorage(graphP theGraph);
@@ -1708,6 +1709,13 @@ gp_CreateRandomGraphEx_Cleanup:
  Checks whether the adjacency list of an any-type vertex u contains an
  edge record with a neighbor field indicating v.
 
+ The adjacency lists of u and v are searched simultaneously, and the
+ search ends when either list is exhausted, so the cost of this method
+ is O(min(deg(u), deg(v))). An edge record indicating v in u's list
+ and its twin edge record indicating u in v's list are always both
+ present or both absent, so the result is the same whichever list
+ yields the match.
+
  Returns TRUE or FALSE.
 
  NOTE: The edge may be undirected, INONLY or OUTONLY. To test if
@@ -1717,7 +1725,7 @@ gp_CreateRandomGraphEx_Cleanup:
 
 int gp_IsNeighbor(graphP theGraph, int u, int v)
 {
-    int e = NIL;
+    int e_u = NIL, e_v = NIL;
 
     if (theGraph == NULL ||
         u < gp_LowerBoundVertexStorage(theGraph) || u >= gp_UpperBoundVertexStorage(theGraph) ||
@@ -1729,13 +1737,15 @@ int gp_IsNeighbor(graphP theGraph, int u, int v)
         return FALSE;
     }
 
-    e = gp_GetFirstEdge(theGraph, u);
-    while (gp_IsEdge(theGraph, e))
+    e_u = gp_GetFirstEdge(theGraph, u);
+    e_v = gp_GetFirstEdge(theGraph, v);
+    while (gp_IsEdge(theGraph, e_u) && gp_IsEdge(theGraph, e_v))
     {
-        if (gp_GetNeighbor(theGraph, e) == v)
+        if (gp_GetNeighbor(theGraph, e_u) == v || gp_GetNeighbor(theGraph, e_v) == u)
             return TRUE;
 
-        e = gp_GetNextEdge(theGraph, e);
+        e_u = gp_GetNextEdge(theGraph, e_u);
+        e_v = gp_GetNextEdge(theGraph, e_v);
     }
     return FALSE;
 }
@@ -1747,6 +1757,13 @@ int gp_IsNeighbor(graphP theGraph, int u, int v)
  edge record with a neighbor field indicating v and a direction flag
  matching the direction parameter.
 
+ The adjacency lists of u and v are searched simultaneously, and the
+ search ends when either list is exhausted, so the cost of this method
+ is O(min(deg(u), deg(v))). The direction parameter is matched against
+ the edge records in u's list, and the opposite direction is matched
+ against the edge records in v's list because the twin of an INONLY
+ edge record is OUTONLY and vice versa (see gp_SetDirection()).
+
  Returns TRUE or FALSE.
 
  NOTE: The valid direction flag values are 0 to match any edge record,
@@ -1755,7 +1772,8 @@ int gp_IsNeighbor(graphP theGraph, int u, int v)
  ********************************************************************/
 int gp_IsNeighborDirected(graphP theGraph, int u, int v, unsigned direction)
 {
-    int e = NIL;
+    int e_u = NIL, e_v = NIL;
+    unsigned twinDirection = _gp_GetTwinDirection(direction);
 
     if (theGraph == NULL ||
         u < gp_LowerBoundVertexStorage(theGraph) || u >= gp_UpperBoundVertexStorage(theGraph) ||
@@ -1768,15 +1786,20 @@ int gp_IsNeighborDirected(graphP theGraph, int u, int v, unsigned direction)
         return FALSE;
     }
 
-    e = gp_GetFirstEdge(theGraph, u);
-    while (gp_IsEdge(theGraph, e))
+    e_u = gp_GetFirstEdge(theGraph, u);
+    e_v = gp_GetFirstEdge(theGraph, v);
+    while (gp_IsEdge(theGraph, e_u) && gp_IsEdge(theGraph, e_v))
     {
-        if (gp_GetNeighbor(theGraph, e) == v)
-        {
-            if (direction == 0 || direction == gp_GetDirection(theGraph, e))
-                return TRUE;
-        }
-        e = gp_GetNextEdge(theGraph, e);
+        if (gp_GetNeighbor(theGraph, e_u) == v &&
+            (direction == 0 || direction == gp_GetDirection(theGraph, e_u)))
+            return TRUE;
+
+        if (gp_GetNeighbor(theGraph, e_v) == u &&
+            (twinDirection == 0 || twinDirection == gp_GetDirection(theGraph, e_v)))
+            return TRUE;
+
+        e_u = gp_GetNextEdge(theGraph, e_u);
+        e_v = gp_GetNextEdge(theGraph, e_v);
     }
     return FALSE;
 }
@@ -1786,6 +1809,8 @@ int gp_IsNeighborDirected(graphP theGraph, int u, int v, unsigned direction)
 
  Searches the adjacency list of an any-type of vertex u to obtain an
  edge record with v in the neighbor field.
+
+ The cost of this method is O(min(deg(u), deg(v))), see _gp_FindEdge().
 
  Returns the edge record's location, or NIL if there is no such edge.
 
@@ -1820,18 +1845,46 @@ int gp_FindEdge(graphP theGraph, int u, int v)
  * from other private methods of the graph library, to avoid
  * duplication of the effort of the checks performed by invoking
  * public methods.
+ *
+ * The adjacency lists of u and v are searched simultaneously, and
+ * the search ends when either list is exhausted, so the cost is
+ * O(min(deg(u), deg(v))). If the match is an edge record in v's
+ * list indicating u, then its twin is the edge record in u's list
+ * indicating v, which is the result returned.
  */
 int _gp_FindEdge(graphP theGraph, int u, int v)
 {
-    int e = gp_GetFirstEdge(theGraph, u);
-    while (gp_IsEdge(theGraph, e))
-    {
-        if (gp_GetNeighbor(theGraph, e) == v)
-            return e;
+    int e_u = gp_GetFirstEdge(theGraph, u);
+    int e_v = gp_GetFirstEdge(theGraph, v);
 
-        e = gp_GetNextEdge(theGraph, e);
+    while (gp_IsEdge(theGraph, e_u) && gp_IsEdge(theGraph, e_v))
+    {
+        if (gp_GetNeighbor(theGraph, e_u) == v)
+            return e_u;
+
+        if (gp_GetNeighbor(theGraph, e_v) == u)
+            return gp_GetTwin(theGraph, e_v);
+
+        e_u = gp_GetNextEdge(theGraph, e_u);
+        e_v = gp_GetNextEdge(theGraph, e_v);
     }
     return NIL;
+}
+
+/*****************************************************************
+ * _gp_GetTwinDirection()
+ *
+ * Returns the direction flag that the twin of an edge record with
+ * the given direction flag has, i.e. EDGEFLAG_DIRECTION_OUTONLY for
+ * EDGEFLAG_DIRECTION_INONLY and vice versa, or 0 for 0 (undirected).
+ */
+unsigned _gp_GetTwinDirection(unsigned direction)
+{
+    if (direction == EDGEFLAG_DIRECTION_INONLY)
+        return EDGEFLAG_DIRECTION_OUTONLY;
+    if (direction == EDGEFLAG_DIRECTION_OUTONLY)
+        return EDGEFLAG_DIRECTION_INONLY;
+    return 0;
 }
 
 /********************************************************************
@@ -1841,6 +1894,15 @@ int _gp_FindEdge(graphP theGraph, int u, int v)
  edge record that matches the direction flag and that has v in the
  neighbor field.
 
+ The adjacency lists of u and v are searched simultaneously, and the
+ search ends when either list is exhausted, so the cost of this method
+ is O(min(deg(u), deg(v))). The direction parameter is matched against
+ the edge records in u's list, and the opposite direction is matched
+ against the edge records in v's list because the twin of an INONLY
+ edge record is OUTONLY and vice versa (see gp_SetDirection()). If
+ the match is an edge record in v's list, then its twin is the edge
+ record in u's list, which is the result returned.
+
  Returns the edge record's location, or NIL if there is no such edge.
 
  NOTE: The valid direction flag value are 0 for any direction,
@@ -1848,7 +1910,8 @@ int _gp_FindEdge(graphP theGraph, int u, int v)
  ********************************************************************/
 int gp_FindDirectedEdge(graphP theGraph, int u, int v, unsigned direction)
 {
-    int e = NIL;
+    int e_u = NIL, e_v = NIL;
+    unsigned twinDirection = _gp_GetTwinDirection(direction);
 
     if (theGraph == NULL ||
         u < gp_LowerBoundVertexStorage(theGraph) || u >= gp_UpperBoundVertexStorage(theGraph) ||
@@ -1866,15 +1929,22 @@ int gp_FindDirectedEdge(graphP theGraph, int u, int v, unsigned direction)
     if (direction == 0)
         return _gp_FindEdge(theGraph, u, v);
 
-    // If a direction was given, then use it
-    e = gp_GetFirstEdge(theGraph, u);
-    while (gp_IsEdge(theGraph, e))
+    // If a direction was given, then use it on u's edge records
+    // and the twin direction on v's edge records
+    e_u = gp_GetFirstEdge(theGraph, u);
+    e_v = gp_GetFirstEdge(theGraph, v);
+    while (gp_IsEdge(theGraph, e_u) && gp_IsEdge(theGraph, e_v))
     {
-        if (gp_GetNeighbor(theGraph, e) == v &&
-            gp_GetDirection(theGraph, e) == direction)
-            return e;
+        if (gp_GetNeighbor(theGraph, e_u) == v &&
+            gp_GetDirection(theGraph, e_u) == direction)
+            return e_u;
 
-        e = gp_GetNextEdge(theGraph, e);
+        if (gp_GetNeighbor(theGraph, e_v) == u &&
+            gp_GetDirection(theGraph, e_v) == twinDirection)
+            return gp_GetTwin(theGraph, e_v);
+
+        e_u = gp_GetNextEdge(theGraph, e_u);
+        e_v = gp_GetNextEdge(theGraph, e_v);
     }
     return NIL;
 }
