@@ -59,7 +59,6 @@ int _ClearObstructionMarksInBicomp(graphP theGraph, int BicompRoot);
 
 int _gp_FindEdge(graphP theGraph, int u, int v);
 
-int _EquipGraphWithParallelEdgeDetector(graphP theGraph, int requiredEdgeCapacity);
 int _CompactEdgeStorage(graphP theGraph);
 
 int _ClearAllVisitedFlagsOnPath(graphP theGraph, int u, int v, int w, int x);
@@ -319,7 +318,6 @@ int _EnsureVertexCapacity(graphP theGraph, int N)
         (theGraphSortedDFSChildLists(theGraph) = LCNew(VIsize)) == NULL ||
         (theGraphExtFace(theGraph) = (extFaceLinkRecP)calloc(Vsize, sizeof(extFaceLinkRec))) == NULL ||
         (theGraphIC(theGraph) = (isolatorContextP)calloc(1, sizeof(isolatorContextStruct))) == NULL ||
-        _EquipGraphWithParallelEdgeDetector(theGraph, theGraph->edgeCapacity) != OK ||
         0)
     {
         _ClearGraph(theGraph);
@@ -395,6 +393,7 @@ void _ResetGraphStorage(graphP theGraph)
     theGraph->graphFlags &= ~GRAPHFLAGS_LOWPOINTSCOMPUTED;
     theGraph->graphFlags &= ~GRAPHFLAGS_DIRECTEDEDGEDETECTED;
     theGraph->graphFlags &= ~GRAPHFLAGS_PARALLELEDGEDETECTED;
+    theGraph->graphFlags &= ~GRAPHFLAGS_PARALLELEDGESCHECKED;
     _InitVertices(theGraph);
     _InitEdges(theGraph);
     _InitIsolatorContext(theGraph);
@@ -533,47 +532,6 @@ int _EnsureEdgeCapacity(graphP theGraph, int requiredEdgeCapacity)
         _InitEdgeRec(theGraph, e);
 
     theGraph->edgeCapacity = requiredEdgeCapacity;
-
-    if (_EquipGraphWithParallelEdgeDetector(theGraph, requiredEdgeCapacity) != OK)
-        return NOTOK;
-
-    return OK;
-}
-
-/********************************************************************
- _EquipGraphWithParallelEdgeDetector()
- ********************************************************************/
-
-int _EquipGraphWithParallelEdgeDetector(graphP theGraph, int requiredEdgeCapacity)
-{
-    graphEdgeDetectorP newDetector = NULL;
-    int v, e, w, twin_e;
-
-    if (theGraph == NULL)
-        return NOTOK;
-
-    newDetector = ged_New(requiredEdgeCapacity);
-    if (newDetector == NULL)
-        return NOTOK;
-
-    for (e = gp_LowerBoundEdges(theGraph); e < gp_UpperBoundEdges(theGraph); e += 2)
-    {
-        if (gp_EdgeNotInUse(theGraph, e))
-            continue;
-
-        twin_e = gp_GetTwin(theGraph, e);
-
-        v = gp_GetNeighbor(theGraph, e);
-        w = gp_GetNeighbor(theGraph, twin_e);
-
-        ged_Set(newDetector, v, w);
-    }
-
-    if (theGraphEdgeDetector(theGraph) != NULL)
-    {
-        ged_Free(&theGraphEdgeDetector(theGraph));
-    }
-    theGraphEdgeDetector(theGraph) = newDetector;
 
     return OK;
 }
@@ -1118,8 +1076,6 @@ void _ClearGraph(graphP theGraph)
         free(theGraphIC(theGraph));
         theGraphIC(theGraph) = NULL;
     }
-    ged_Free(&theGraphEdgeDetector(theGraph));
-
     gp_FreeExtensions(theGraph);
 
     // Free the pseudo-extensions
@@ -1329,15 +1285,6 @@ int gp_CopyGraph(graphP dstGraph, graphP srcGraph)
     sp_Copy(dstGraph->theStack, srcGraph->theStack);
     sp_Copy(dstGraph->edgeHoles, srcGraph->edgeHoles);
     dstGraph->numEdgeHoles = sp_GetCurrentSize((dstGraph)->edgeHoles);
-    if (theGraphEdgeDetector(srcGraph) != NULL)
-    {
-        if (theGraphEdgeDetector(dstGraph) != NULL)
-            ged_Free(&theGraphEdgeDetector(dstGraph));
-        theGraphEdgeDetector(dstGraph) = ged_Duplicate(theGraphEdgeDetector(srcGraph));
-        if (theGraphEdgeDetector(dstGraph) == NULL)
-            return NOTOK;
-    }
-
     gp_NoteModification(dstGraph);
 
     // Copy the set of extensions, which includes copying the
@@ -2254,29 +2201,10 @@ int gp_InsertEdge(graphP theGraph, int u, int e_u, int e_ulink,
         e_ulink < 0 || e_ulink > 1 || e_vlink < 0 || e_vlink > 1)
         return NOTOK;
 
-    if (theGraphEdgeDetector(theGraph) != NULL)
-    {
-        // Ensure we always pass the smaller vertex first
-        int min_v = (u < v) ? u : v;
-        int max_v = (u > v) ? u : v;
-
-        if (ged_IsSet(theGraphEdgeDetector(theGraph), min_v, max_v) == TRUE)
-        {
-            // The bit is ON. This is either a parallel edge or a hash collision
-
-            if (gp_IsNeighbor(theGraph, min_v, max_v) == TRUE)
-            {
-                // Parallel Edge !!
-                theGraph->graphFlags |= GRAPHFLAGS_PARALLELEDGEDETECTED;
-            }
-        }
-        else
-        {
-            ged_Set(theGraphEdgeDetector(theGraph), min_v, max_v);
-        }
-    }
-    else
-        return NOTOK;
+    // Parallel edges are detected lazily by gp_DetectParallelEdges(), so
+    // adding an edge invalidates any previously cached detection result.
+    theGraph->graphFlags &= ~GRAPHFLAGS_PARALLELEDGESCHECKED;
+    theGraph->graphFlags &= ~GRAPHFLAGS_PARALLELEDGEDETECTED;
 
     if (sp_NonEmpty(theGraph->edgeHoles))
     {
@@ -3354,6 +3282,77 @@ int gp_DeleteParallelEdges(graphP theGraph)
     _CompactEdgeStorage(theGraph);
 
     theGraph->graphFlags &= ~GRAPHFLAGS_PARALLELEDGEDETECTED;
+    theGraph->graphFlags |= GRAPHFLAGS_PARALLELEDGESCHECKED;
+
+    return OK;
+}
+
+/********************************************************************
+ gp_DetectParallelEdges()
+
+ In O(N+M) time, determines whether the graph contains parallel edges,
+ setting GRAPHFLAGS_PARALLELEDGEDETECTED if so and clearing it
+ otherwise. The result is cached by GRAPHFLAGS_PARALLELEDGESCHECKED:
+ if that flag is already set, this method returns OK immediately.
+ gp_InsertEdge() clears both flags, so the first consumer that needs
+ to know about parallel edges after an edge insertion pays for one
+ pass over the adjacency lists, and later consumers pay nothing.
+
+ The detection uses the same rule as gp_DeleteParallelEdges(): two edge
+ records in the same adjacency list that indicate the same neighbor are
+ parallel, regardless of their direction flags. A single loop edge
+ (which has two records in one adjacency list) is not parallel, but
+ two loops at the same vertex are.
+
+ Returns OK on success, NOTOK on failure (e.g. insufficient memory).
+ ********************************************************************/
+
+int gp_DetectParallelEdges(graphP theGraph)
+{
+    int *markedBy, v, e, neighbor, loopRecords, parallelEdgeFound = FALSE;
+
+    if (theGraph == NULL)
+        return NOTOK;
+
+    if (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGESCHECKED)
+        return OK;
+
+    markedBy = (int *)malloc(gp_UpperBoundVertexStorage(theGraph) * sizeof(int));
+    if (markedBy == NULL)
+        return NOTOK;
+
+    for (v = 0; v < gp_UpperBoundVertexStorage(theGraph); ++v)
+        markedBy[v] = NIL;
+
+    for (v = gp_LowerBoundVertices(theGraph); v < gp_UpperBoundVertices(theGraph) && !parallelEdgeFound; ++v)
+    {
+        loopRecords = 0;
+        e = gp_GetFirstEdge(theGraph, v);
+        while (gp_IsEdge(theGraph, e))
+        {
+            neighbor = gp_GetNeighbor(theGraph, e);
+
+            if (neighbor == v)
+            {
+                if (++loopRecords > 2)
+                    parallelEdgeFound = TRUE;
+            }
+            else if (markedBy[neighbor] == v)
+                parallelEdgeFound = TRUE;
+            else
+                markedBy[neighbor] = v;
+
+            e = gp_GetNextEdge(theGraph, e);
+        }
+    }
+
+    free(markedBy);
+
+    if (parallelEdgeFound)
+        theGraph->graphFlags |= GRAPHFLAGS_PARALLELEDGEDETECTED;
+    else
+        theGraph->graphFlags &= ~GRAPHFLAGS_PARALLELEDGEDETECTED;
+    theGraph->graphFlags |= GRAPHFLAGS_PARALLELEDGESCHECKED;
 
     return OK;
 }

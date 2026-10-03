@@ -2600,7 +2600,7 @@ int runManyParallelEdgesTest(void)
     {
         retVal = NOTOK;
     }
-    else if (!(G->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
+    else if (gp_DetectParallelEdges(G) != OK || !(G->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
         retVal = NOTOK;
 
     else if (gp_GetM(G) != 60)
@@ -2632,7 +2632,7 @@ int runManyParallelEdgesTest(void)
         if (gp_DeleteParallelEdges(G1) != OK)
             retVal = NOTOK;
 
-        else if (G1->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED)
+        else if (gp_DetectParallelEdges(G1) != OK || (G1->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
             retVal = NOTOK;
 
         else if (gp_GetM(G1) != 15)
@@ -2674,7 +2674,7 @@ int runSingleParallelEdgeTest(void)
     else if (gp_Read(G, "Petersen.txt") != OK || gp_GetM(G) != 15)
         retVal = NOTOK;
 
-    else if (G->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED)
+    else if (gp_DetectParallelEdges(G) != OK || (G->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
         retVal = NOTOK;
 
     else if (gp_GetVertexDegree(G, 1) != 3 || gp_GetVertexDegree(G, 1) != 3)
@@ -2686,13 +2686,13 @@ int runSingleParallelEdgeTest(void)
     else if (gp_GetVertexDegree(G, 1) != 4 || gp_GetVertexDegree(G, 1) != 4)
         retVal = NOTOK;
 
-    else if (!(G->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
+    else if (gp_DetectParallelEdges(G) != OK || !(G->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
         retVal = NOTOK;
 
     else if (gp_DeleteParallelEdges(G) != OK)
         retVal = NOTOK;
 
-    else if (G->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED)
+    else if (gp_DetectParallelEdges(G) != OK || (G->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
         retVal = NOTOK;
 
     else if (gp_GetM(G) != 15)

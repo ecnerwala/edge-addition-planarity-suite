@@ -103,7 +103,7 @@ int gp_DepthFirstSearch(graphP theGraph)
     if (theGraph == NULL)
         return NOTOK;
         
-    if (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED)
+    if (gp_DetectParallelEdges(theGraph) != OK || (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
     {
         gp_ErrorMessage("Parallel edges were previously added to the graph. See gp_DeleteParallelEdges().");
         return NOTOK;
@@ -560,7 +560,7 @@ int gp_ComputeLowpoints(graphP theGraph)
     if (theGraph == NULL)
         return NOTOK;
 
-    if (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED)
+    if (gp_DetectParallelEdges(theGraph) != OK || (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
     {
         gp_ErrorMessage("Parallel edges were previously added to the graph. See gp_DeleteParallelEdges().");
         return NOTOK;
@@ -693,7 +693,7 @@ int gp_ComputeLeastAncestors(graphP theGraph)
     if (theGraph == NULL)
         return NOTOK;
 
-    if (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED)
+    if (gp_DetectParallelEdges(theGraph) != OK || (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
     {
         gp_ErrorMessage("Parallel edges were previously added to the graph. See gp_DeleteParallelEdges().");
         return NOTOK;

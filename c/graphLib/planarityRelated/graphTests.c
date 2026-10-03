@@ -91,7 +91,7 @@ int gp_TestEmbedResultIntegrity(graphP theGraph, graphP origGraph, int embedResu
     if (theGraph == NULL || origGraph == NULL)
         return NOTOK;
 
-    if (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED)
+    if (gp_DetectParallelEdges(theGraph) != OK || (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
     {
         gp_ErrorMessage("Parallel edges were previously added to the graph. See gp_DeleteParallelEdges().");
         return NOTOK;

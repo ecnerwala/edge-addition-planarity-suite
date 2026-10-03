@@ -73,6 +73,7 @@ extern "C"
     int gp_ClearEdgeDirectionFlags(graphP theGraph);
     int gp_TransposeDirectedGraph(graphP theGraph);
     int  gp_DeleteParallelEdges(graphP theGraph);
+    int  gp_DetectParallelEdges(graphP theGraph);
 
     // Intermediate graph structure manipulators
     void gp_HideEdge(graphP theGraph, int e);
@@ -96,6 +97,7 @@ extern "C"
 */
 #define GRAPHFLAGS_DIRECTEDEDGEDETECTED 1
 #define GRAPHFLAGS_PARALLELEDGEDETECTED 4
+#define GRAPHFLAGS_PARALLELEDGESCHECKED 8
 #define gp_GetGraphFlags(theGraph) ((theGraph)->graphFlags)
 
     // For graph embedding methods and declarations, see graphPlanarity.h

@@ -628,7 +628,7 @@ int _g6_WriteGraphToStrOrFile(graphP theGraph, strOrFileP *pOutputContainer)
 {
     G6WriteIteratorP theG6WriteIterator = NULL;
     
-    if (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED)
+    if (gp_DetectParallelEdges(theGraph) != OK || (theGraph->graphFlags & GRAPHFLAGS_PARALLELEDGEDETECTED))
     {
         gp_ErrorMessage("Parallel edges were previously added to the graph. See gp_DeleteParallelEdges().");
         return NOTOK;
