@@ -52,6 +52,8 @@ int runParallelEdgeTests(void);
 int runManyParallelEdgesTest(void);
 int runSingleParallelEdgeTest(void);
 int addParallelEdges(graphP theGraph);
+int runLoopEdgeTest(graphP G, int embedFlags, int expectedResult);
+int runLoopEdgeTests(void);
 int runDrawPlanarNonplanarWriteTest(void);
 int runReadErrorTests(void);
 int runReadWithExtensionAtEofTest(void);
@@ -270,6 +272,8 @@ int runQuickRegressionTests(int argc, char *argv[])
     else if (runDigraphTests() != OK)
         retVal = NOTOK;
     else if (runParallelEdgeTests() != OK)
+        retVal = NOTOK;
+    else if (runLoopEdgeTests() != OK)
         retVal = NOTOK;
     else if (runHighByteRoundTripTest() != OK)
         retVal = NOTOK;
@@ -2969,4 +2973,121 @@ int addParallelEdges(graphP theGraph)
 
     free(neighborList);
     return gp_GetM(theGraph) == 4 * origM ? OK : NOTOK;
+}
+
+/****************************************************************************
+ runLoopEdgeTest()
+ Embeds a copy of G with the given embedFlags, after attaching the algorithm
+ extension they select, and checks the result and its integrity against G.
+ ****************************************************************************/
+
+int runLoopEdgeTest(graphP G, int embedFlags, int expectedResult)
+{
+    int retVal = OK;
+    unsigned quietModeCache = gp_GetQuietMode();
+    graphP G1 = gp_DupGraph(G);
+
+    if (G1 == NULL)
+        return NOTOK;
+
+    if (embedFlags == EMBEDFLAGS_OUTERPLANAR)
+        retVal = gp_ExtendWith_Outerplanarity(G1);
+    else if (embedFlags == EMBEDFLAGS_DRAWPLANAR)
+        retVal = gp_ExtendWith_DrawPlanar(G1);
+    else if (embedFlags == EMBEDFLAGS_SEARCHFORK23)
+        retVal = gp_ExtendWith_K23Search(G1);
+    else if (embedFlags == EMBEDFLAGS_SEARCHFORK33)
+        retVal = gp_ExtendWith_K33Search(G1);
+    else if (embedFlags == EMBEDFLAGS_SEARCHFORK4)
+        retVal = gp_ExtendWith_K4Search(G1);
+
+    if (expectedResult == NOTOK)
+        gp_SetQuietMode(QUIETMODE_ALL);
+    if (retVal == OK && gp_Embed(G1, embedFlags) != expectedResult)
+        retVal = NOTOK;
+    gp_SetQuietMode(quietModeCache);
+
+    if (retVal == OK && expectedResult != NOTOK &&
+        gp_TestEmbedResultIntegrity(G1, G, expectedResult) != expectedResult)
+        retVal = NOTOK;
+
+    gp_Free(&G1);
+    return retVal;
+}
+
+/****************************************************************************
+ runLoopEdgeTests()
+ Loops (edges with both endpoints at the same vertex) are embedded by every
+ algorithm, each as a face of length one, except that DrawPlanar cannot draw
+ them. The planar embedding, the outerplanar embedding and the obstruction
+ isolated from a nonplanar graph must all pass the result integrity test.
+ ****************************************************************************/
+
+int runLoopEdgeTests(void)
+{
+    int retVal = OK;
+    graphP G = gp_New(), G1 = NULL;
+    int v = 0, u, w;
+
+    gp_Message("Starting Loop Edge Tests");
+
+    if (G == NULL || gp_EnsureVertexCapacity(G, 5) != OK || gp_EnsureEdgeCapacity(G, 40) != OK)
+        retVal = NOTOK;
+    else
+        v = gp_LowerBoundVertices(G);
+
+    // K4 minus one edge, with a loop on each vertex
+    for (u = 0; retVal == OK && u < 4; u++)
+    {
+        for (w = u + 1; retVal == OK && w < 4; w++)
+            if ((u != 2 || w != 3) && gp_AddEdge(G, v + u, 0, v + w, 0) != OK)
+                retVal = NOTOK;
+        if (retVal == OK && gp_AddEdge(G, v + u, 0, v + u, 0) != OK)
+            retVal = NOTOK;
+    }
+    if (retVal == OK && gp_GetM(G) != 9)
+        retVal = NOTOK;
+
+    if (retVal == OK && (runLoopEdgeTest(G, EMBEDFLAGS_PLANAR, OK) != OK ||
+                         runLoopEdgeTest(G, EMBEDFLAGS_OUTERPLANAR, OK) != OK ||
+                         runLoopEdgeTest(G, EMBEDFLAGS_DRAWPLANAR, NOTOK) != OK ||
+                         runLoopEdgeTest(G, EMBEDFLAGS_SEARCHFORK23, OK) != OK ||
+                         runLoopEdgeTest(G, EMBEDFLAGS_SEARCHFORK33, OK) != OK ||
+                         runLoopEdgeTest(G, EMBEDFLAGS_SEARCHFORK4, OK) != OK))
+        retVal = NOTOK;
+
+    // The loops also survive a DFS performed before the embedding
+    if (retVal == OK)
+    {
+        if ((G1 = gp_DupGraph(G)) == NULL)
+            retVal = NOTOK;
+        else if (gp_DepthFirstSearch(G1) != OK || gp_Embed(G1, EMBEDFLAGS_PLANAR) != OK)
+            retVal = NOTOK;
+        else if (gp_TestEmbedResultIntegrity(G1, G, OK) != OK)
+            retVal = NOTOK;
+    }
+
+    // Adding the missing edge gives K4 with loops, which is not outerplanar
+    if (retVal == OK && gp_AddEdge(G, v + 2, 0, v + 3, 0) != OK)
+        retVal = NOTOK;
+    if (retVal == OK && (runLoopEdgeTest(G, EMBEDFLAGS_PLANAR, OK) != OK ||
+                         runLoopEdgeTest(G, EMBEDFLAGS_OUTERPLANAR, NONEMBEDDABLE) != OK ||
+                         runLoopEdgeTest(G, EMBEDFLAGS_SEARCHFORK4, NONEMBEDDABLE) != OK))
+        retVal = NOTOK;
+
+    // Joining a fifth vertex, with a loop, to all others gives K5 with loops
+    for (u = 0; retVal == OK && u < 5; u++)
+        if (gp_AddEdge(G, v + 4, 0, v + u, 0) != OK)
+            retVal = NOTOK;
+    if (retVal == OK && (runLoopEdgeTest(G, EMBEDFLAGS_PLANAR, NONEMBEDDABLE) != OK ||
+                         runLoopEdgeTest(G, EMBEDFLAGS_DRAWPLANAR, NONEMBEDDABLE) != OK ||
+                         runLoopEdgeTest(G, EMBEDFLAGS_SEARCHFORK33, OK) != OK))
+        retVal = NOTOK;
+
+    gp_Free(&G);
+    gp_Free(&G1);
+
+    gp_Message("Finished Loop Edge Tests.\n");
+
+    return retVal;
 }
