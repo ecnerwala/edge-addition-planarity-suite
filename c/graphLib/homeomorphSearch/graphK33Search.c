@@ -844,7 +844,9 @@ int _FindK33WithMergeBlocker(graphP theGraph, K33SearchContext *context, int v, 
     e = gp_GetVertexFwdEdgeList(theGraph, IC->v);
     while (gp_IsEdge(theGraph, e))
     {
-        theGraph->functions->fpWalkUp(theGraph, IC->v, e);
+        // Loops at v are not back edges to descendants (see gp_Embed())
+        if (gp_GetNeighbor(theGraph, e) != IC->v)
+            theGraph->functions->fpWalkUp(theGraph, IC->v, e);
 
         e = gp_GetNextEdge(theGraph, e);
         if (e == gp_GetVertexFwdEdgeList(theGraph, IC->v))

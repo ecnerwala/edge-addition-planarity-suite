@@ -37,6 +37,7 @@ void _DrawPlanar_InitVertexInfo(DrawPlanarContext *context, int v);
 int _DrawPlanar_MergeBicomps(graphP theGraph, int v, int RootVertex, int W, int WPrevLink);
 int _DrawPlanar_HandleInactiveVertex(graphP theGraph, int BicompRoot, int *pW, int *pWPrevLink);
 int _DrawPlanar_HandleBlockedBicomp(graphP theGraph, int v, int RootVertex, int R);
+int _DrawPlanar_HasLoop(graphP theGraph);
 int _DrawPlanar_EmbedPostprocess(graphP theGraph, int v, int edgeEmbeddingResult);
 int _DrawPlanar_CheckEmbeddingIntegrity(graphP theGraph, graphP origGraph);
 int _DrawPlanar_CheckObstructionIntegrity(graphP theGraph, graphP origGraph);
@@ -635,6 +636,21 @@ void _DrawPlanar_InitVertexInfo(DrawPlanarContext *context, int v)
 /********************************************************************
  ********************************************************************/
 
+int _DrawPlanar_HasLoop(graphP theGraph)
+{
+    int v;
+
+    // Once the edge embedding succeeds, the fwd edge lists contain only loops
+    for (v = gp_LowerBoundVertices(theGraph); v < gp_UpperBoundVertices(theGraph); ++v)
+        if (gp_IsEdge(theGraph, gp_GetVertexFwdEdgeList(theGraph, v)))
+            return TRUE;
+
+    return FALSE;
+}
+
+/********************************************************************
+ ********************************************************************/
+
 int _DrawPlanar_EmbedPostprocess(graphP theGraph, int v, int edgeEmbeddingResult)
 {
     DrawPlanarContext *context = NULL;
@@ -642,6 +658,7 @@ int _DrawPlanar_EmbedPostprocess(graphP theGraph, int v, int edgeEmbeddingResult
 
     if (context != NULL)
     {
+        int hasLoop = _DrawPlanar_HasLoop(theGraph);
         int RetVal = context->functions.fpEmbedPostprocess(theGraph, v, edgeEmbeddingResult);
 
         if (gp_GetEmbedFlags(theGraph) == EMBEDFLAGS_DRAWPLANAR)
@@ -650,7 +667,13 @@ int _DrawPlanar_EmbedPostprocess(graphP theGraph, int v, int edgeEmbeddingResult
 
             if (RetVal == OK)
             {
-                RetVal = _ComputeVisibilityRepresentation(context);
+                if (hasLoop)
+                {
+                    gp_ErrorMessage("DrawPlanar does not support loops.");
+                    RetVal = NOTOK;
+                }
+                else
+                    RetVal = _ComputeVisibilityRepresentation(context);
                 if (RetVal == OK)
                     context->drawingDataValid = TRUE;
             }

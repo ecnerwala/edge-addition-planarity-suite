@@ -177,7 +177,16 @@ int gp_DepthFirstSearch(graphP theGraph)
                 while (gp_IsEdge(theGraph, e))
                 {
                     if (!gp_GetVisited(theGraph, gp_GetNeighbor(theGraph, e)))
+                    {
                         sp_Push2(theStack, u, e);
+                    }
+                    // A loop is a back edge from u to itself; its twin is seen in
+                    // the same scan, so only the lower-indexed record types the pair
+                    else if (gp_GetNeighbor(theGraph, e) == u && e < gp_GetTwin(theGraph, e))
+                    {
+                        gp_SetEdgeType(theGraph, e, EDGE_TYPE_FORWARD);
+                        gp_SetEdgeType(theGraph, gp_GetTwin(theGraph, e), EDGE_TYPE_BACK);
+                    }
                     e = gp_GetNextEdge(theGraph, e);
                 }
             }

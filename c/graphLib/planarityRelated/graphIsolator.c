@@ -837,7 +837,12 @@ int _DeleteUnmarkedVerticesAndEdges(graphP theGraph)
         {
             eNext = gp_GetNextEdge(theGraph, e);
             if (!gp_GetEdgeVisited(theGraph, e))
+            {
+                // Deleting a loop also deletes its twin, the next record
+                if (eNext == gp_GetTwin(theGraph, e))
+                    eNext = gp_GetNextEdge(theGraph, eNext);
                 gp_DeleteEdge(theGraph, e);
+            }
             e = eNext;
         }
     }

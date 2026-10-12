@@ -489,21 +489,25 @@ void _CreateBackEdgeLists(graphP theGraph, K33SearchContext *context)
             ancestor = gp_GetNeighbor(theGraph, e);
             eTwin = gp_GetTwin(theGraph, e);
 
-            // Put it into the back edge list of the ancestor
-            if (gp_IsNotEdge(theGraph, context->VI[ancestor].backEdgeList))
+            // A loop (ancestor == v) is not a back edge to a descendant, so it is skipped
+            if (ancestor != v)
             {
-                context->VI[ancestor].backEdgeList = eTwin;
-                gp_SetPrevEdge(theGraph, eTwin, eTwin);
-                gp_SetNextEdge(theGraph, eTwin, eTwin);
-            }
-            else
-            {
-                int eHead = context->VI[ancestor].backEdgeList;
-                int eTail = gp_GetPrevEdge(theGraph, eHead);
-                gp_SetPrevEdge(theGraph, eTwin, eTail);
-                gp_SetNextEdge(theGraph, eTwin, eHead);
-                gp_SetPrevEdge(theGraph, eHead, eTwin);
-                gp_SetNextEdge(theGraph, eTail, eTwin);
+                // Put it into the back edge list of the ancestor
+                if (gp_IsNotEdge(theGraph, context->VI[ancestor].backEdgeList))
+                {
+                    context->VI[ancestor].backEdgeList = eTwin;
+                    gp_SetPrevEdge(theGraph, eTwin, eTwin);
+                    gp_SetNextEdge(theGraph, eTwin, eTwin);
+                }
+                else
+                {
+                    int eHead = context->VI[ancestor].backEdgeList;
+                    int eTail = gp_GetPrevEdge(theGraph, eHead);
+                    gp_SetPrevEdge(theGraph, eTwin, eTail);
+                    gp_SetNextEdge(theGraph, eTwin, eHead);
+                    gp_SetPrevEdge(theGraph, eHead, eTwin);
+                    gp_SetNextEdge(theGraph, eTail, eTwin);
+                }
             }
 
             // Advance to the next forward edge record of v (or NIL if done)

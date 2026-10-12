@@ -62,6 +62,7 @@ int _OrientVerticesInEmbedding(graphP theGraph);
 int _OrientVerticesInBicomp(graphP theGraph, int BicompRoot, int PreserveSigns);
 int _OrientExternalFacePath(graphP theGraph, int u, int v, int w, int x);
 int _JoinBicomps(graphP theGraph);
+void _EmbedLoop(graphP theGraph, int v, int e);
 
 /********************************************************************
  gp_Embed()
@@ -104,7 +105,7 @@ int _JoinBicomps(graphP theGraph);
 
 int gp_Embed(graphP theGraph, unsigned embedFlags)
 {
-    int v, e, c;
+    int v, e, c, eStart;
     int RetVal = OK;
 
     // Basic safety checks
@@ -147,20 +148,31 @@ int gp_Embed(graphP theGraph, unsigned embedFlags)
 
         // WalkUp calls establish Pertinence in Step v
         // Do the WalkUp for each back edge from v to a DFS descendant W.
-        e = gp_GetVertexFwdEdgeList(theGraph, v);
+        // A loop at v is logically the 0th child bicomp of v: a bicomp consisting
+        // of just the loop, which is already embedded and inert, so it needs no
+        // WalkUp or WalkDown and is simply joined to v by _JoinBicomps(). Loops
+        // lead the fwd edge list (no descendant has a smaller DFI), so this
+        // 0th child is processed first by moving the loops to the tail of the
+        // list, i.e. advancing the list head past them, where they wait for
+        // _JoinBicomps() and cannot be mistaken by WalkDown for unembedded back
+        // edges to descendants.
+        eStart = e = gp_GetVertexFwdEdgeList(theGraph, v);
         if (gp_IsEdge(theGraph, e))
         {
             do
             {
+                if (gp_GetNeighbor(theGraph, e) == v)
+                    gp_SetVertexFwdEdgeList(theGraph, v, gp_GetNextEdge(theGraph, e));
+
                 // Forward edges parallel to one another are consecutive in the list, so only
                 // the first of them needs a WalkUp. The WalkUp records it as pertinent,
                 // after which we can avoid calling WalkUp again for the same vertex.
-                if (gp_IsNotEdge(theGraph, gp_GetVertexPertinentEdge(theGraph, gp_GetNeighbor(theGraph, e))))
+                else if (gp_IsNotEdge(theGraph, gp_GetVertexPertinentEdge(theGraph, gp_GetNeighbor(theGraph, e))))
                     theGraph->functions->fpWalkUp(theGraph, v, e);
 
                 // Get the next edge in the
                 e = gp_GetNextEdge(theGraph, e);
-            } while (e != gp_GetVertexFwdEdgeList(theGraph, v));
+            } while (e != eStart);
         }
 
         // For speed, the Walkup records the pertinent child bicomps of v itself,
@@ -1747,15 +1759,82 @@ int _OrientVerticesInBicomp(graphP theGraph, int BicompRoot, int PreserveSigns)
 
 int _JoinBicomps(graphP theGraph)
 {
-    for (int R = gp_LowerBoundVirtualVertices(theGraph); R < gp_UpperBoundVirtualVertices(theGraph); ++R)
+    int R, c, e, eStart;
+
+    for (R = gp_LowerBoundVirtualVertices(theGraph); R < gp_UpperBoundVirtualVertices(theGraph); ++R)
     {
         // If the bicomp root is still active (i.e. an in-use virtual vertex)
         // then merge it with its parent copy vertex (non-virtual)
         if (gp_VirtualVertexInUse(theGraph, R))
             _MergeVertex(theGraph, _gp_GetVertexFromBicompRoot(theGraph, R), 0, R);
+
+        // Embed the loops at c, the fwd edge records of c whose neighbor is c.
+        c = gp_GetDFSChildFromBicompRoot(theGraph, R);
+        // The list is rotated once around, embedding the loops and stopping when
+        // the first non-loop record (eStart) comes back to the head. Non-loop
+        // records remain only when an obstruction isolator is joining bicomps,
+        // and they are then restored and deleted along with the obstruction.
+        eStart = NIL;
+        while (gp_IsEdge(theGraph, e = gp_GetVertexFwdEdgeList(theGraph, c)) && e != eStart)
+        {
+            if (gp_GetNeighbor(theGraph, e) == c)
+                _EmbedLoop(theGraph, c, e);
+            else
+            {
+                if (gp_IsNotEdge(theGraph, eStart))
+                    eStart = e;
+                gp_SetVertexFwdEdgeList(theGraph, c, gp_GetNextEdge(theGraph, e));
+            }
+        }
+    }
+    return OK;
+}
+
+/********************************************************************
+ _EmbedLoop()
+ Moves the loop record e from the fwd edge list of v into the adjacency
+ list of v, together with its twin, as two consecutive records after
+ the first record, which makes the loop a face of length one.
+ ********************************************************************/
+
+void _EmbedLoop(graphP theGraph, int v, int e)
+{
+    int eTwin, eFirst, eNext;
+
+    eNext = gp_GetNextEdge(theGraph, e);
+    if (eNext == e)
+        gp_SetVertexFwdEdgeList(theGraph, v, NIL);
+    else
+    {
+        gp_SetVertexFwdEdgeList(theGraph, v, eNext);
+        gp_SetNextEdge(theGraph, gp_GetPrevEdge(theGraph, e), eNext);
+        gp_SetPrevEdge(theGraph, eNext, gp_GetPrevEdge(theGraph, e));
     }
 
-    return OK;
+    eTwin = gp_GetTwin(theGraph, e);
+    eFirst = gp_GetFirstEdge(theGraph, v);
+
+    gp_SetNextEdge(theGraph, e, eTwin);
+    gp_SetPrevEdge(theGraph, eTwin, e);
+
+    if (gp_IsEdge(theGraph, eFirst))
+    {
+        eNext = gp_GetNextEdge(theGraph, eFirst);
+        gp_SetPrevEdge(theGraph, e, eFirst);
+        gp_SetNextEdge(theGraph, eFirst, e);
+        gp_SetNextEdge(theGraph, eTwin, eNext);
+        if (gp_IsEdge(theGraph, eNext))
+            gp_SetPrevEdge(theGraph, eNext, eTwin);
+        else
+            gp_SetLastEdge(theGraph, v, eTwin);
+    }
+    else
+    {
+        gp_SetPrevEdge(theGraph, e, NIL);
+        gp_SetNextEdge(theGraph, eTwin, NIL);
+        gp_SetFirstEdge(theGraph, v, e);
+        gp_SetLastEdge(theGraph, v, eTwin);
+    }
 }
 
 /****************************************************************************
